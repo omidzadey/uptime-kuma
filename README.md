@@ -11,6 +11,9 @@ Uptime Kuma is an easy-to-use self-hosted monitoring tool.
 <img src="https://weblate.kuma.pet/widgets/uptime-kuma/-/svg-badge.svg" alt="Translation status" />
 </a>
 
+> [!NOTE]
+> This is a fork designed to add advanced Stremio addon support.
+
 <img src="https://user-images.githubusercontent.com/1336778/212262296-e6205815-ad62-488c-83ec-a5b0d0689f7c.jpg" width="700" alt="Uptime Kuma Dashboard Screenshot" />
 
 ## 🥔 Live Demo
