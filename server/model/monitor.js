@@ -203,6 +203,8 @@ class Monitor extends BeanModel {
             conditions: JSON.parse(this.conditions),
             ipFamily: this.ipFamily,
             expectedTlsAlert: this.expected_tls_alert,
+            stremio_manifest_url: this.stremio_manifest_url,
+            stremio_last_check: this.stremio_last_check,
 
             // ping advanced options
             ping_numeric: this.isPingNumeric(),
@@ -1790,6 +1792,20 @@ class Monitor extends BeanModel {
                 if (delay >= maxDelayFromInterval) {
                     throw new Error(`Screenshot delay must be less than ${maxDelayFromInterval}ms (0.5 × interval)`);
                 }
+            }
+        }
+
+        if (this.type === "stremio-addon") {
+            if (!this.stremio_manifest_url || typeof this.stremio_manifest_url !== "string") {
+                throw new Error("Stremio Addon: Manifest URL is required");
+            }
+            try {
+                const u = new URL(this.stremio_manifest_url);
+                if (u.protocol !== "http:" && u.protocol !== "https:") {
+                    throw new Error("must be http(s)");
+                }
+            } catch (e) {
+                throw new Error(`Stremio Addon: Manifest URL is not a valid http(s) URL (${e.message})`);
             }
         }
 

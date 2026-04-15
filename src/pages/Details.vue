@@ -106,7 +106,15 @@
                 <span v-if="monitor.type === 'steam'">
                     Steam Game Server: {{ monitor.hostname }}:{{ monitor.port }}
                 </span>
+                <span v-if="monitor.type === 'stremio-addon'">
+                    Stremio Addon:
+                    <a :href="monitor.stremio_manifest_url" target="_blank" rel="noopener noreferrer">
+                        {{ monitor.stremio_manifest_url }}
+                    </a>
+                </span>
             </p>
+
+            <StremioCheckDetails v-if="monitor.type === 'stremio-addon'" :monitor="monitor" />
 
             <div class="functions">
                 <div class="btn-group" role="group">
@@ -455,6 +463,7 @@ import "prismjs/components/prism-css";
 import { PrismEditor } from "vue-prism-editor";
 import "vue-prism-editor/dist/prismeditor.min.css";
 import ScreenshotDialog from "../components/ScreenshotDialog.vue";
+import StremioCheckDetails from "../components/StremioCheckDetails.vue";
 
 export default {
     components: {
@@ -470,6 +479,7 @@ export default {
         CertificateInfo,
         PrismEditor,
         ScreenshotDialog,
+        StremioCheckDetails,
     },
     data() {
         return {

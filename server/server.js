@@ -931,6 +931,7 @@ let needSetup = false;
                 bean.manual_status = monitor.manual_status;
                 bean.system_service_name = monitor.system_service_name;
                 bean.expected_tls_alert = monitor.expectedTlsAlert;
+                bean.stremio_manifest_url = monitor.stremio_manifest_url;
 
                 // ping advanced options
                 bean.ping_numeric = monitor.ping_numeric;
@@ -1047,6 +1048,33 @@ let needSetup = false;
                     ORDER BY time ASC
                 `,
                     [monitorID, -period]
+                );
+
+                callback({
+                    ok: true,
+                    data: list,
+                });
+            } catch (e) {
+                callback({
+                    ok: false,
+                    msg: e.message,
+                });
+            }
+        });
+
+        socket.on("getStremioHistory", async (monitorID, callback) => {
+            try {
+                checkLogin(socket);
+
+                const list = await R.getAll(
+                    `
+                    SELECT id, time, status, msg, stremio_data
+                    FROM heartbeat
+                    WHERE monitor_id = ? AND stremio_data IS NOT NULL
+                    ORDER BY time DESC
+                    LIMIT 100
+                `,
+                    [ monitorID ]
                 );
 
                 callback({

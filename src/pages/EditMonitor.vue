@@ -87,6 +87,7 @@
                                         </option>
                                         <option value="smtp">SMTP</option>
                                         <option value="snmp">SNMP</option>
+                                        <option value="stremio-addon">{{ $t("Stremio Addon") }}</option>
                                         <option v-if="!$root.info.isContainer" value="tailscale-ping">
                                             Tailscale Ping
                                         </option>
@@ -151,6 +152,63 @@
                             <div v-if="monitor.type === 'sip-options'" class="alert alert-warning" role="alert">
                                 {{ $t("sipsakPingWarning") }}
                             </div>
+
+                            <!-- Stremio Addon -->
+                            <template v-if="monitor.type === 'stremio-addon'">
+                                <div class="my-3">
+                                    <label for="stremio_manifest_url" class="form-label">
+                                        {{ $t("Manifest URL") }}
+                                    </label>
+                                    <input
+                                        id="stremio_manifest_url"
+                                        v-model="monitor.stremio_manifest_url"
+                                        type="url"
+                                        class="form-control"
+                                        placeholder="https://example.com/manifest.json"
+                                        pattern="https?://.+/manifest\.json.*"
+                                        required
+                                    />
+                                    <div class="form-text">
+                                        {{ $t("stremioManifestUrlDescription") }}
+                                    </div>
+                                </div>
+
+                                <div class="my-3">
+                                    <label for="stremio_addons_hub_search" class="form-label">
+                                        {{ $t("Search stremio-addons.net") }}
+                                    </label>
+                                    <VueMultiselect
+                                        id="stremio_addons_hub_search"
+                                        v-model="stremioAddonsHubSelected"
+                                        :options="stremioAddonsHubOptions"
+                                        :loading="stremioAddonsHubLoading"
+                                        :internal-search="false"
+                                        :searchable="true"
+                                        :options-limit="20"
+                                        :clear-on-select="false"
+                                        :close-on-select="true"
+                                        :show-no-results="true"
+                                        :placeholder="$t('Type to search addons')"
+                                        label="name"
+                                        track-by="manifestUrl"
+                                        @search-change="onStremioAddonsHubSearch"
+                                        @select="onStremioAddonsHubSelect"
+                                    >
+                                        <template #option="{ option }">
+                                            <div>
+                                                <strong>{{ option.name }}</strong>
+                                                <span v-if="option.stars != null" class="ms-2 text-warning">
+                                                    ★ {{ option.stars }}
+                                                </span>
+                                                <div v-if="option.description" class="small text-muted">
+                                                    {{ option.description }}
+                                                </div>
+                                                <div v-if="option.slug" class="small text-muted">{{ option.slug }}</div>
+                                            </div>
+                                        </template>
+                                    </VueMultiselect>
+                                </div>
+                            </template>
 
                             <!-- Friendly Name -->
                             <div class="my-3">
@@ -2863,6 +2921,7 @@ import isFQDN from "validator/lib/isFQDN";
 import isIP from "validator/lib/isIP";
 import HiddenInput from "../components/HiddenInput.vue";
 import EditMonitorConditions from "../components/EditMonitorConditions.vue";
+import { searchStremioAddonsHub } from "../util-frontend-stremio-addons-hub";
 
 const toast = useToast();
 
@@ -2936,6 +2995,7 @@ const monitorDefaults = {
     rabbitmqPassword: "",
     conditions: [],
     system_service_name: "",
+    stremio_manifest_url: "",
 };
 
 export default {
@@ -2986,6 +3046,10 @@ export default {
                 confirmed: false,
                 editedValue: false,
             },
+            stremioAddonsHubOptions: [],
+            stremioAddonsHubLoading: false,
+            stremioAddonsHubSelected: null,
+            stremioAddonsHubSearchTimer: null,
         };
     },
 
@@ -3566,6 +3630,33 @@ message HealthCheckResponse {
         this.kafkaSaslMechanismOptions = kafkaSaslMechanismOptions;
     },
     methods: {
+        onStremioAddonsHubSearch(query) {
+            if (this.stremioAddonsHubSearchTimer) {
+                clearTimeout(this.stremioAddonsHubSearchTimer);
+            }
+            this.stremioAddonsHubSearchTimer = setTimeout(async () => {
+                this.stremioAddonsHubLoading = true;
+                try {
+                    const results = await searchStremioAddonsHub({
+                        search: query || "",
+                        limit: 20,
+                        sort_by: "stars",
+                        order: "desc",
+                        nsfw: "exclude",
+                    });
+                    this.stremioAddonsHubOptions = results;
+                } catch (e) {
+                    this.stremioAddonsHubOptions = [];
+                } finally {
+                    this.stremioAddonsHubLoading = false;
+                }
+            }, 300);
+        },
+        onStremioAddonsHubSelect(option) {
+            if (option && option.manifestUrl) {
+                this.monitor.stremio_manifest_url = option.manifestUrl;
+            }
+        },
         /**
          * Initialize the edit monitor form
          * @returns {void}

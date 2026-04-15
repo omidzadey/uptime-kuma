@@ -730,6 +730,16 @@ export default {
         getMonitorChartData(monitorID, period, callback) {
             socket.emit("getMonitorChartData", monitorID, period, callback);
         },
+
+        /**
+         * Retrieves Stremio check history for a monitor.
+         * @param {number} monitorID monitor id
+         * @param {socketCB} callback callback
+         * @returns {void}
+         */
+        getStremioHistory(monitorID, callback) {
+            socket.emit("getStremioHistory", monitorID, callback);
+        },
     },
 
     computed: {
