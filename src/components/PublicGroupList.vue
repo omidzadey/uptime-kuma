@@ -119,6 +119,17 @@
                                             <HeartbeatBar size="mid" :monitor-id="monitor.element.id" />
                                         </div>
                                     </div>
+                                    <div
+                                        v-if="showStremio && monitor.element.type === 'stremio-addon'"
+                                        class="stremio-wrap mt-3"
+                                    >
+                                        <StremioCheckDetails
+                                            :monitor="monitor.element"
+                                            :public-mode="true"
+                                            :slug="slug"
+                                            :compact="true"
+                                        />
+                                    </div>
                                 </div>
                             </template>
                         </Draggable>
@@ -137,6 +148,7 @@ import HeartbeatBar from "./HeartbeatBar.vue";
 import Uptime from "./Uptime.vue";
 import Tag from "./Tag.vue";
 import Status from "./Status.vue";
+import StremioCheckDetails from "./StremioCheckDetails.vue";
 
 export default {
     components: {
@@ -146,6 +158,7 @@ export default {
         Uptime,
         Tag,
         Status,
+        StremioCheckDetails,
     },
     props: {
         /** Are we in edit mode? */
@@ -164,6 +177,15 @@ export default {
         /** Should only the last heartbeat be shown? */
         showOnlyLastHeartbeat: {
             type: Boolean,
+        },
+        /** Should Stremio check details be shown? */
+        showStremio: {
+            type: Boolean,
+        },
+        /** Status page slug (needed by public Stremio fetch) */
+        slug: {
+            type: String,
+            default: "",
         },
     },
     data() {

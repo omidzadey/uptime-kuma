@@ -114,6 +114,19 @@
                     </label>
                 </div>
 
+                <!-- Show Stremio check details -->
+                <div class="my-3 form-check form-switch">
+                    <input
+                        id="show-stremio"
+                        v-model="config.showStremio"
+                        class="form-check-input"
+                        type="checkbox"
+                    />
+                    <label class="form-check-label" for="show-stremio">
+                        {{ $t("Show Stremio Check Details") }}
+                    </label>
+                </div>
+
                 <!-- Domain Name List -->
                 <div class="my-3">
                     <label class="form-label">
@@ -493,6 +506,8 @@
                     :show-tags="config.showTags"
                     :show-certificate-expiry="config.showCertificateExpiry"
                     :show-only-last-heartbeat="config.showOnlyLastHeartbeat"
+                    :show-stremio="config.showStremio"
+                    :slug="slug"
                 />
             </div>
 

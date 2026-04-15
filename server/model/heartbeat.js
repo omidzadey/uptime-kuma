@@ -40,6 +40,7 @@ class Heartbeat extends BeanModel {
             duration: this._duration,
             retries: this._retries,
             response: this._response,
+            stremio_data: this.stremio_data,
         };
     }
 
@@ -59,6 +60,7 @@ class Heartbeat extends BeanModel {
             duration: this._duration,
             retries: this._retries,
             response: opts?.decodeResponse ? await Heartbeat.decodeResponseValue(this._response) : undefined,
+            stremio_data: this.stremio_data,
         };
     }
 

@@ -3,7 +3,7 @@
         <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">{{ $t("Check history") }}</h5>
+                    <h5 class="modal-title">{{ modalTitle }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" :aria-label="$t('Close')" />
                 </div>
                 <div class="modal-body">
@@ -14,7 +14,7 @@
                     <div v-else-if="history.length === 0" class="text-center text-muted p-4">
                         {{ $t("No data") }}
                     </div>
-                    <div v-else class="history-list">
+                    <div v-else ref="historyList" class="history-list">
                         <div v-for="beat in history" :key="beat.id" class="history-row mb-2">
                             <div class="summary d-flex align-items-center p-2" role="button" @click="toggle(beat.id)">
                                 <span class="badge me-2" :class="beat.status === 1 ? 'bg-success' : 'bg-danger'">
@@ -25,7 +25,7 @@
                                 <font-awesome-icon :icon="expanded[beat.id] ? 'chevron-up' : 'chevron-down'" />
                             </div>
                             <div v-if="expanded[beat.id]" class="details p-2">
-                                <div v-if="!parsed[beat.id]" class="text-muted small">
+                                <div v-if="!parsed[beat.id] || sectionsFor(parsed[beat.id]).length === 0" class="text-muted small">
                                     {{ $t("No raw data stored for this check") }}
                                 </div>
                                 <template v-else>
@@ -77,6 +77,7 @@
 </template>
 
 <script>
+import axios from "axios";
 import { Modal } from "bootstrap";
 import dayjs from "dayjs";
 
@@ -90,6 +91,14 @@ export default {
             type: Array,
             default: () => [],
         },
+        publicMode: {
+            type: Boolean,
+            default: false,
+        },
+        slug: {
+            type: String,
+            default: "",
+        },
     },
     data() {
         return {
@@ -102,8 +111,31 @@ export default {
             initialKey: null,
         };
     },
+    computed: {
+        modalTitle() {
+            const base = this.$t("Check history");
+            if (this.initialKey === "movie") {
+                return `${base} — ${this.$t("Movie")}`;
+            }
+            if (this.initialKey === "series") {
+                return `${base} — ${this.$t("Series")}`;
+            }
+            if (this.initialKey === "catalog") {
+                return `${base} — ${this.$t("Catalog")}`;
+            }
+            return base;
+        },
+    },
     mounted() {
         this.modal = new Modal(this.$refs.modal);
+        this.$refs.modal.addEventListener("hidden.bs.modal", this.onHidden);
+        this.$refs.modal.addEventListener("shown.bs.modal", this.onShown);
+    },
+    beforeUnmount() {
+        if (this.$refs.modal) {
+            this.$refs.modal.removeEventListener("hidden.bs.modal", this.onHidden);
+            this.$refs.modal.removeEventListener("shown.bs.modal", this.onShown);
+        }
     },
     methods: {
         show(initialKey) {
@@ -116,11 +148,31 @@ export default {
             if (this.history.length > 0) {
                 this.toggle(this.history[0].id);
             }
+            this.resetScroll();
+        },
+        resetScroll() {
+            this.$nextTick(() => {
+                if (this.$refs.historyList) {
+                    this.$refs.historyList.scrollTop = 0;
+                }
+            });
+        },
+        onHidden() {
+            this.history = [];
+            this.expanded = {};
+            this.parsed = {};
+            this.initialKey = null;
+            if (this.$refs.historyList) {
+                this.$refs.historyList.scrollTop = 0;
+            }
+        },
+        onShown() {
+            this.resetScroll();
         },
         load() {
             this.loading = this.history.length === 0;
             this.error = null;
-            this.$root.getStremioHistory(this.monitor.id, (res) => {
+            const handle = (res) => {
                 this.loading = false;
                 if (!res || !res.ok) {
                     this.error = (res && res.msg) || "Failed to load history";
@@ -130,7 +182,20 @@ export default {
                 if (this.history.length > 0 && Object.keys(this.expanded).length === 0) {
                     this.toggle(this.history[0].id);
                 }
-            });
+                this.resetScroll();
+            };
+            if (this.publicMode) {
+                if (!this.slug) {
+                    this.loading = false;
+                    return;
+                }
+                axios
+                    .get(`/api/status-page/${encodeURIComponent(this.slug)}/stremio/${this.monitor.id}`)
+                    .then((res) => handle(res.data))
+                    .catch((e) => handle({ ok: false, msg: e.message }));
+                return;
+            }
+            this.$root.getStremioHistory(this.monitor.id, handle);
         },
         toggle(id) {
             if (this.expanded[id]) {
@@ -185,6 +250,9 @@ export default {
                     id: null,
                     items: Array.isArray(diag.catalog.metas) ? diag.catalog.metas : [],
                 });
+            }
+            if (this.initialKey) {
+                return sections.filter((s) => s.key === this.initialKey);
             }
             return sections;
         },

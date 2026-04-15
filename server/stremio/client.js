@@ -16,6 +16,55 @@ const axios = require("axios");
 const DEFAULT_TIMEOUT_MS = 15000;
 
 /**
+ * Classify an HTTP response's cache status from its headers.
+ *
+ * Priority: explicit CDN cache header > Cache-Control directives > fallback.
+ * @param {object} headers response headers (axios-style, lowercased keys)
+ * @returns {"HIT"|"MISS"|"DYNAMIC"|"STATIC"} classification
+ */
+function classifyCache(headers) {
+    const h = (name) => {
+        if (!headers) {
+            return "";
+        }
+        const v = headers[name] ?? headers[name.toLowerCase()] ?? "";
+        return String(v).toLowerCase();
+    };
+    const cdn = h("x-cache") || h("cf-cache-status") || h("x-vercel-cache");
+    if (cdn.includes("hit")) {
+        return "HIT";
+    }
+    if (cdn.includes("miss")) {
+        return "MISS";
+    }
+    if (cdn.includes("dynamic")) {
+        return "DYNAMIC";
+    }
+    const cc = h("cache-control");
+    if (cc.includes("no-store") || cc.includes("no-cache") || cc.includes("private")) {
+        return "DYNAMIC";
+    }
+    if (/max-age=\d+/.test(cc)) {
+        return "STATIC";
+    }
+    return "DYNAMIC";
+}
+
+/**
+ * Build a {ms, status, cache} meta record for an addon fetch.
+ * @param {number} startedAt Date.now() before the request
+ * @param {object} res axios response
+ * @returns {{ms: number, status: number, cache: string}} meta
+ */
+function buildMeta(startedAt, res) {
+    return {
+        ms: Date.now() - startedAt,
+        status: res?.status ?? 0,
+        cache: classifyCache(res?.headers),
+    };
+}
+
+/**
  * Derive an addon base URL from its manifest URL.
  *
  * Stremio addons may encode per-user config into the URL path BEFORE
@@ -49,10 +98,11 @@ function buildResourceUrl(manifestUrl, resource, type, id) {
  * @param {object} options options bag
  * @param {number} options.timeoutMs timeout
  * @param {object} options.httpClient injectable axios-like client (for tests)
- * @returns {Promise<object>} parsed manifest
+ * @returns {Promise<{manifest: object, meta: {ms: number, status: number, cache: string}}>} parsed manifest + fetch meta
  */
 async function fetchManifest(manifestUrl, options = {}) {
     const client = options.httpClient || axios;
+    const startedAt = Date.now();
     const res = await client.get(manifestUrl, {
         timeout: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         responseType: "json",
@@ -61,7 +111,7 @@ async function fetchManifest(manifestUrl, options = {}) {
     if (!res.data || typeof res.data !== "object") {
         throw new Error("Manifest is not a JSON object");
     }
-    return res.data;
+    return { manifest: res.data, meta: buildMeta(startedAt, res) };
 }
 
 /**
@@ -75,13 +125,14 @@ async function fetchManifest(manifestUrl, options = {}) {
 async function fetchStream(manifestUrl, type, id, options = {}) {
     const client = options.httpClient || axios;
     const url = buildResourceUrl(manifestUrl, "stream", type, id);
+    const startedAt = Date.now();
     const res = await client.get(url, {
         timeout: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         responseType: "json",
         validateStatus: (s) => s >= 200 && s < 300,
     });
     const streams = Array.isArray(res.data?.streams) ? res.data.streams : [];
-    return { streams, url };
+    return { streams, url, meta: buildMeta(startedAt, res) };
 }
 
 /**
@@ -95,13 +146,14 @@ async function fetchStream(manifestUrl, type, id, options = {}) {
 async function fetchCatalog(manifestUrl, type, catalogId, options = {}) {
     const client = options.httpClient || axios;
     const url = buildResourceUrl(manifestUrl, "catalog", type, catalogId);
+    const startedAt = Date.now();
     const res = await client.get(url, {
         timeout: options.timeoutMs || DEFAULT_TIMEOUT_MS,
         responseType: "json",
         validateStatus: (s) => s >= 200 && s < 300,
     });
     const metas = Array.isArray(res.data?.metas) ? res.data.metas : [];
-    return { metas, url };
+    return { metas, url, meta: buildMeta(startedAt, res) };
 }
 
 /**
@@ -165,4 +217,5 @@ module.exports = {
     buildResourceUrl,
     manifestToBase,
     normaliseResources,
+    classifyCache,
 };

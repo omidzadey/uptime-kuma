@@ -1,5 +1,5 @@
 <template>
-    <div class="shadow-box big-padding mb-4 stremio-check-details">
+    <div class="shadow-box mb-4 stremio-check-details" :class="compact ? 'compact-padding' : 'big-padding'">
         <div class="header d-flex align-items-center justify-content-between mb-3">
             <h4 class="mb-0">{{ $t("Stremio Check Details") }}</h4>
             <span class="small text-muted">
@@ -30,11 +30,18 @@
             </button>
         </div>
 
-        <StremioHistoryModal ref="historyModal" :monitor="monitor" :preloaded-history="history" />
+        <StremioHistoryModal
+            ref="historyModal"
+            :monitor="monitor"
+            :preloaded-history="history"
+            :public-mode="publicMode"
+            :slug="slug"
+        />
     </div>
 </template>
 
 <script>
+import axios from "axios";
 import dayjs from "dayjs";
 import StremioHistoryModal from "./StremioHistoryModal.vue";
 
@@ -44,6 +51,18 @@ export default {
         monitor: {
             type: Object,
             required: true,
+        },
+        publicMode: {
+            type: Boolean,
+            default: false,
+        },
+        slug: {
+            type: String,
+            default: "",
+        },
+        compact: {
+            type: Boolean,
+            default: false,
         },
     },
     data() {
@@ -68,10 +87,27 @@ export default {
         latestBeat() {
             this.load();
         },
+        slug() {
+            this.load();
+        },
     },
     methods: {
         load() {
             if (!this.monitor || !this.monitor.id) {
+                return;
+            }
+            if (this.publicMode) {
+                if (!this.slug) {
+                    return;
+                }
+                axios
+                    .get(`/api/status-page/${encodeURIComponent(this.slug)}/stremio/${this.monitor.id}`)
+                    .then((res) => {
+                        if (res.data && res.data.ok) {
+                            this.history = res.data.data || [];
+                        }
+                    })
+                    .catch(() => {});
                 return;
             }
             this.$root.getStremioHistory(this.monitor.id, (res) => {
@@ -86,7 +122,7 @@ export default {
     },
     computed: {
         latestBeat() {
-            const list = this.$root.heartbeatList[this.monitor.id];
+            const list = this.$root.heartbeatList && this.$root.heartbeatList[this.monitor.id];
             if (!list || list.length === 0) {
                 return null;
             }
@@ -160,6 +196,10 @@ export default {
 @import "../assets/vars.scss";
 
 .stremio-check-details {
+    &.compact-padding {
+        padding: 12px 16px;
+    }
+
     .row-item {
         border: 1px solid rgba(0, 0, 0, 0.08);
         border-radius: 8px;

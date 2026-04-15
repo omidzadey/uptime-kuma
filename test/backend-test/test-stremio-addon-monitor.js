@@ -25,6 +25,17 @@ function makeManifest(overrides = {}) {
     };
 }
 
+const FAKE_META = { ms: 10, status: 200, cache: "DYNAMIC" };
+
+/**
+ * Wrap a bare manifest object in the new fetchManifest return shape.
+ * @param {object} m bare manifest
+ * @returns {{manifest: object, meta: object}} wrapped shape
+ */
+function wrapManifest(m) {
+    return { manifest: m, meta: FAKE_META };
+}
+
 describe("stremio client.pickStrategy", () => {
     test("stream resource with movie+series → stream mode", () => {
         const s = stremio.pickStrategy(makeManifest());
@@ -95,13 +106,18 @@ describe("StremioAddonMonitorType.check", () => {
     });
 
     test("stream UP when movie returns >1 streams", async () => {
-        stremio.fetchManifest = async () => makeManifest({ types: [ "movie", "series" ] });
+        stremio.fetchManifest = async () => wrapManifest(makeManifest({ types: [ "movie", "series" ] }));
         cinemeta.pickRandomMovieId = async () => ({ id: "tt1", name: "Movie A" });
         cinemeta.pickRandomSeriesId = async () => ({ id: "tt2", name: "Series A" });
-        stremio.fetchStream = async (_u, t) => ({
-            streams: t === "movie" ? [ {}, {}, {}, {}, {} ] : [],
-            url: "",
-        });
+        const calls = [];
+        stremio.fetchStream = async (_u, t, id) => {
+            calls.push({ t, id });
+            return {
+                streams: t === "movie" ? [ {}, {}, {}, {}, {} ] : [],
+                url: "",
+                meta: FAKE_META,
+            };
+        };
 
         const monitor = { stremio_manifest_url: "https://h/manifest.json", timeout: 5 };
         const heartbeat = {};
@@ -110,13 +126,21 @@ describe("StremioAddonMonitorType.check", () => {
         assert.match(heartbeat.msg, /Stream OK/);
         const diag = JSON.parse(heartbeat.stremio_data);
         assert.strictEqual(diag.movie.count, 5);
+
+        // Series stream ID must include season/episode per Stremio protocol.
+        const movieCall = calls.find((c) => c.t === "movie");
+        const seriesCall = calls.find((c) => c.t === "series");
+        assert.strictEqual(movieCall.id, "tt1");
+        assert.strictEqual(seriesCall.id, "tt2:1:1");
+        // Diag should still store the bare IMDb id for the IMDb link.
+        assert.strictEqual(diag.series.id, "tt2");
     });
 
     test("stream DOWN when movie and series both ≤1", async () => {
-        stremio.fetchManifest = async () => makeManifest({ types: [ "movie", "series" ] });
+        stremio.fetchManifest = async () => wrapManifest(makeManifest({ types: [ "movie", "series" ] }));
         cinemeta.pickRandomMovieId = async () => ({ id: "tt1", name: "M" });
         cinemeta.pickRandomSeriesId = async () => ({ id: "tt2", name: "S" });
-        stremio.fetchStream = async () => ({ streams: [ {} ], url: "" });
+        stremio.fetchStream = async () => ({ streams: [ {} ], url: "", meta: FAKE_META });
 
         const monitor = { stremio_manifest_url: "https://h/manifest.json", timeout: 5 };
         const heartbeat = {};
@@ -140,7 +164,7 @@ describe("StremioAddonMonitorType.check", () => {
     });
 
     test("cinemeta fetch fails → DOWN with clear error", async () => {
-        stremio.fetchManifest = async () => makeManifest({ types: [ "movie" ] });
+        stremio.fetchManifest = async () => wrapManifest(makeManifest({ types: [ "movie" ] }));
         cinemeta.pickRandomMovieId = async () => {
             throw new Error("EAI_AGAIN");
         };
@@ -153,13 +177,14 @@ describe("StremioAddonMonitorType.check", () => {
     });
 
     test("catalog UP when metas non-empty", async () => {
-        stremio.fetchManifest = async () => makeManifest({
+        stremio.fetchManifest = async () => wrapManifest(makeManifest({
             resources: [ "catalog" ],
             catalogs: [ { type: "movie", id: "top" } ],
-        });
+        }));
         stremio.fetchCatalog = async () => ({
             metas: new Array(25).fill({ id: "tt1", name: "x" }),
             url: "",
+            meta: FAKE_META,
         });
 
         const monitor = { stremio_manifest_url: "https://h/manifest.json", timeout: 5 };
@@ -170,11 +195,11 @@ describe("StremioAddonMonitorType.check", () => {
     });
 
     test("catalog DOWN when metas empty", async () => {
-        stremio.fetchManifest = async () => makeManifest({
+        stremio.fetchManifest = async () => wrapManifest(makeManifest({
             resources: [ "catalog" ],
             catalogs: [ { type: "movie", id: "top" } ],
-        });
-        stremio.fetchCatalog = async () => ({ metas: [], url: "" });
+        }));
+        stremio.fetchCatalog = async () => ({ metas: [], url: "", meta: FAKE_META });
 
         const monitor = { stremio_manifest_url: "https://h/manifest.json", timeout: 5 };
         const heartbeat = {};
@@ -185,11 +210,11 @@ describe("StremioAddonMonitorType.check", () => {
     });
 
     test("diag blob populated on DOWN path", async () => {
-        stremio.fetchManifest = async () => makeManifest({
+        stremio.fetchManifest = async () => wrapManifest(makeManifest({
             resources: [ "catalog" ],
             catalogs: [ { type: "movie", id: "top" } ],
-        });
-        stremio.fetchCatalog = async () => ({ metas: [], url: "" });
+        }));
+        stremio.fetchCatalog = async () => ({ metas: [], url: "", meta: FAKE_META });
 
         const monitor = { stremio_manifest_url: "https://h/manifest.json", timeout: 5 };
         const heartbeat = {};

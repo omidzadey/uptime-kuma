@@ -109,6 +109,73 @@ router.get("/api/status-page/heartbeat/:slug", cache("1 minutes"), async (reques
     }
 });
 
+// Public Stremio check data for a monitor on a status page.
+// Only returns data if the monitor is in a public group on the given slug
+// and is of type 'stremio-addon'. Mirrors the authenticated getStremioHistory
+// socket handler shape: { ok: true, data: [ { id, time, status, msg, stremio_data } ] }
+router.get("/api/status-page/:slug/stremio/:monitorId", cache("1 minutes"), async (request, response) => {
+    allowDevAllOrigin(response);
+
+    try {
+        let slug = request.params.slug.toLowerCase();
+        let monitorId = parseInt(request.params.monitorId, 10);
+
+        if (!Number.isFinite(monitorId)) {
+            sendHttpError(response, "Invalid monitor id");
+            return;
+        }
+
+        let statusPage = await R.findOne("status_page", " slug = ? ", [ slug ]);
+        if (!statusPage) {
+            sendHttpError(response, "Status Page Not Found");
+            return;
+        }
+
+        if (!statusPage.show_stremio) {
+            sendHttpError(response, "Not Found");
+            return;
+        }
+
+        // Confirm the monitor is in a public group on this status page AND is a stremio-addon monitor.
+        let row = await R.getRow(
+            `
+            SELECT monitor.id FROM monitor, monitor_group, \`group\`
+            WHERE monitor.id = monitor_group.monitor_id
+            AND monitor_group.group_id = \`group\`.id
+            AND \`group\`.public = 1
+            AND \`group\`.status_page_id = ?
+            AND monitor.id = ?
+            AND monitor.type = 'stremio-addon'
+            LIMIT 1
+        `,
+            [ statusPage.id, monitorId ]
+        );
+
+        if (!row) {
+            sendHttpError(response, "Not Found");
+            return;
+        }
+
+        let list = await R.getAll(
+            `
+            SELECT id, time, status, msg, stremio_data
+            FROM heartbeat
+            WHERE monitor_id = ? AND stremio_data IS NOT NULL
+            ORDER BY time DESC
+            LIMIT 100
+        `,
+            [ monitorId ]
+        );
+
+        response.json({
+            ok: true,
+            data: list,
+        });
+    } catch (error) {
+        sendHttpError(response, error.message);
+    }
+});
+
 // Status page's manifest.json
 router.get("/api/status-page/:slug/manifest.json", cache("1440 minutes"), async (request, response) => {
     allowDevAllOrigin(response);

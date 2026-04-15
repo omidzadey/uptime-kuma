@@ -13,7 +13,7 @@ const STREMIO_ADDONS_HUB_BASE = "https://stremio-addons.net";
  * @param {string} [params.sort_by="stars"]
  * @param {string} [params.order="desc"]
  * @param {string} [params.nsfw="exclude"]
- * @returns {Promise<Array<{name:string, manifestUrl:string, description?:string, stars?:number, slug?:string}>>}
+ * @returns {Promise<Array<{name:string, manifestUrl:string, description?:string, logo?:string, stars?:number, slug?:string}>>}
  */
 export async function searchStremioAddonsHub(params = {}) {
     const qs = new URLSearchParams();
@@ -35,11 +35,15 @@ export async function searchStremioAddonsHub(params = {}) {
     }
     const body = await res.json();
     const list = Array.isArray(body) ? body : (body?.addons ?? body?.data ?? []);
-    return list.map((a) => ({
-        name: a.name ?? a.title ?? a.slug ?? "unknown",
-        manifestUrl: a.manifestUrl ?? a.manifest_url ?? a.url ?? "",
-        description: a.description ?? a.desc ?? "",
-        stars: typeof a.stars === "number" ? a.stars : (a.rating ?? null),
-        slug: a.slug ?? "",
-    })).filter((a) => a.manifestUrl);
+    return list.map((a) => {
+        const m = a.manifest ?? {};
+        return {
+            name: m.name ?? a.name ?? a.title ?? a.slug ?? "unknown",
+            manifestUrl: a.manifestUrl ?? a.manifest_url ?? a.url ?? "",
+            description: m.description ?? a.description ?? a.desc ?? "",
+            logo: m.logo ?? a.logo ?? "",
+            stars: typeof a.stars === "number" ? a.stars : (a.rating ?? null),
+            slug: a.slug ?? "",
+        };
+    }).filter((a) => a.manifestUrl);
 }

@@ -195,15 +195,23 @@
                                         @select="onStremioAddonsHubSelect"
                                     >
                                         <template #option="{ option }">
-                                            <div>
-                                                <strong>{{ option.name }}</strong>
-                                                <span v-if="option.stars != null" class="ms-2 text-warning">
-                                                    ★ {{ option.stars }}
-                                                </span>
-                                                <div v-if="option.description" class="small text-muted">
-                                                    {{ option.description }}
+                                            <div class="d-flex align-items-center stremio-addon-option">
+                                                <div class="flex-grow-1 me-2 min-width-0">
+                                                    <strong>{{ option.name }}</strong>
+                                                    <span v-if="option.stars != null" class="ms-2 text-warning">
+                                                        ★ {{ option.stars }}
+                                                    </span>
+                                                    <div v-if="option.description" class="small text-muted stremio-addon-description">
+                                                        {{ option.description }}
+                                                    </div>
                                                 </div>
-                                                <div v-if="option.slug" class="small text-muted">{{ option.slug }}</div>
+                                                <img
+                                                    v-if="option.logo"
+                                                    :src="option.logo"
+                                                    alt=""
+                                                    class="stremio-addon-logo flex-shrink-0"
+                                                    @error="(e) => e.target.style.display = 'none'"
+                                                />
                                             </div>
                                         </template>
                                     </VueMultiselect>
@@ -4181,5 +4189,26 @@ message HealthCheckResponse {
 
 textarea {
     min-height: 200px;
+}
+
+.stremio-addon-option {
+    gap: 0.75rem;
+}
+
+.min-width-0 {
+    min-width: 0;
+}
+
+.stremio-addon-description {
+    white-space: normal;
+    word-break: break-word;
+}
+
+.stremio-addon-logo {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
 }
 </style>

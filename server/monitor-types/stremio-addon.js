@@ -26,10 +26,18 @@ class StremioAddonMonitorType extends MonitorType {
             manifestUrl,
             strategy: null,
             testedTypes: [],
+            manifestMeta: null,
             movie: null,
             series: null,
             catalog: null,
+            totalMs: 0,
             checkedAt: new Date().toISOString(),
+        };
+
+        const addMs = (meta) => {
+            if (meta && typeof meta.ms === "number") {
+                diag.totalMs += meta.ms;
+            }
         };
 
         // Write diag to heartbeat even on throw — bean mutations pre-throw
@@ -51,7 +59,12 @@ class StremioAddonMonitorType extends MonitorType {
 
         let manifest;
         try {
-            manifest = await stremio.fetchManifest(manifestUrl, { timeoutMs });
+            const res = await stremio.fetchManifest(manifestUrl, { timeoutMs });
+            manifest = res.manifest;
+            diag.manifestMeta = res.meta;
+            diag.manifestName = manifest?.name || null;
+            diag.manifestLogo = manifest?.logo || null;
+            addMs(res.meta);
         } catch (e) {
             await persistDiag();
             throw new Error(`Manifest unreachable: ${e.message}`);
@@ -82,13 +95,19 @@ class StremioAddonMonitorType extends MonitorType {
                 }
 
                 try {
-                    const { streams } = await stremio.fetchStream(manifestUrl, type, pick.id, { timeoutMs });
+                    // Stremio protocol: series stream IDs must include season/episode
+                    // (<imdbId>:<s>:<e>). Default to S1E1 — every top-catalog series
+                    // has it, and strict addons return 0 streams for a bare series ID.
+                    const streamId = type === "series" ? `${pick.id}:1:1` : pick.id;
+                    const { streams, meta } = await stremio.fetchStream(manifestUrl, type, streamId, { timeoutMs });
+                    addMs(meta);
                     results[type] = {
                         id: pick.id,
                         name: pick.name,
                         poster: pick.poster,
                         count: streams.length,
                         streams: streams.slice(0, MAX_STORED_STREAMS),
+                        meta,
                     };
                 } catch (e) {
                     results[type] = {
@@ -126,6 +145,7 @@ class StremioAddonMonitorType extends MonitorType {
         if (strategy.mode === "catalog") {
             diag.testedTypes = [ strategy.catalogType ];
             let metas;
+            let catalogMeta;
             try {
                 const res = await stremio.fetchCatalog(
                     manifestUrl,
@@ -134,6 +154,8 @@ class StremioAddonMonitorType extends MonitorType {
                     { timeoutMs }
                 );
                 metas = res.metas;
+                catalogMeta = res.meta;
+                addMs(catalogMeta);
             } catch (e) {
                 await persistDiag();
                 throw new Error(`Catalog request failed: ${e.message}`);
@@ -144,6 +166,7 @@ class StremioAddonMonitorType extends MonitorType {
                 id: strategy.catalogId,
                 count: metas.length,
                 metas: metas.slice(0, MAX_STORED_METAS),
+                meta: catalogMeta,
             };
 
             if (metas.length === 0) {

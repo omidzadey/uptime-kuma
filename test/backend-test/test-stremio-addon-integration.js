@@ -50,7 +50,7 @@ describe("stremio integration", { skip }, () => {
     });
 
     test("pickStrategy on live Cinemeta manifest", { timeout: 15000 }, async () => {
-        const manifest = await stremio.fetchManifest(
+        const { manifest } = await stremio.fetchManifest(
             "https://v3-cinemeta.strem.io/manifest.json",
             { timeoutMs: 10000 }
         );

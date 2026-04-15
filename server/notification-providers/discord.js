@@ -1,6 +1,21 @@
 const NotificationProvider = require("./notification-provider");
 const axios = require("axios");
-const { DOWN, UP } = require("../../src/util");
+const { DOWN, UP, PENDING, MAINTENANCE } = require("../../src/util");
+
+// Status → Discord embed stripe color (left bar of the embed)
+const STATUS_COLOR = {
+    [UP]: 65280,           // green
+    [DOWN]: 16711680,      // red
+    [PENDING]: 16753920,   // orange
+    [MAINTENANCE]: 10070709, // grey-blue
+};
+
+const CACHE_EMOJI = {
+    HIT: "✅",
+    MISS: "⚠️",
+    DYNAMIC: "⚡",
+    STATIC: "📦",
+};
 
 class Discord extends NotificationProvider {
     name = "discord";
@@ -116,6 +131,34 @@ class Discord extends NotificationProvider {
                 }
                 await axios.post(webhookUrl.toString(), payload, config);
                 return okMsg;
+            }
+
+            // Stremio Addon monitor: build a richer embed using the diag blob
+            // captured by server/monitor-types/stremio-addon.js. Falls through
+            // to the generic UP/DOWN embeds on any parse failure so a broken
+            // addon can never break the notification.
+            if (monitorJSON?.["type"] === "stremio-addon" && heartbeatJSON?.["stremio_data"]) {
+                const stremioEmbed = this.buildStremioEmbed(monitorJSON, heartbeatJSON);
+                if (stremioEmbed) {
+                    let payload = {
+                        username: discordDisplayName,
+                        embeds: [ stremioEmbed ],
+                    };
+                    if (!webhookHasAvatar) {
+                        payload.avatar_url = "https://github.com/louislam/uptime-kuma/raw/master/public/icon.png";
+                    }
+                    if (notification.discordChannelType === "createNewForumPost") {
+                        payload.thread_name = notification.postName;
+                    }
+                    if (notification.discordPrefixMessage) {
+                        payload.content = notification.discordPrefixMessage;
+                    }
+                    if (notification.discordSuppressNotifications) {
+                        payload.flags = SUPPRESS_NOTIFICATIONS_FLAG;
+                    }
+                    await axios.post(webhookUrl.toString(), payload, config);
+                    return okMsg;
+                }
             }
 
             if (heartbeatJSON["status"] === DOWN) {
@@ -257,6 +300,277 @@ class Discord extends NotificationProvider {
         } catch (error) {
             this.throwGeneralAxiosError(error);
         }
+    }
+
+    /**
+     * Build a Discord embed tailored for the Stremio Addon monitor type.
+     *
+     * Mirrors the layout of src/components/StremioCheckDetails.vue: a compact
+     * card with status / timing / cache / count rows plus linked movie & series
+     * titles. Returns null if the diag blob is missing or malformed so the
+     * caller can fall back to the generic embed.
+     * @param {object} monitorJSON serialized monitor
+     * @param {object} heartbeatJSON serialized heartbeat (must include stremio_data)
+     * @returns {?object} Discord embed object, or null to fall through
+     */
+    buildStremioEmbed(monitorJSON, heartbeatJSON) {
+        let diag;
+        try {
+            diag = JSON.parse(heartbeatJSON["stremio_data"]);
+        } catch (_) {
+            return null;
+        }
+        if (!diag || typeof diag !== "object") {
+            return null;
+        }
+
+        const status = heartbeatJSON["status"];
+        const isUp = status === UP;
+        const color = STATUS_COLOR[status] ?? STATUS_COLOR[DOWN];
+
+        // Wrap values in a single-line code block so Discord renders them
+        // as the boxed monospaced cells shown in the reference screenshot.
+        const box = (v) => "```\n" + v + "\n```";
+        const fmtSeconds = (ms) => {
+            if (typeof ms !== "number") {
+                return box("—");
+            }
+            return box(`${(ms / 1000).toFixed(3)}s`);
+        };
+        const fmtCache = (cache) => {
+            if (!cache) {
+                return box("—");
+            }
+            const emoji = CACHE_EMOJI[cache] || "";
+            return box(`${emoji} ${cache}`.trim());
+        };
+        const fmtCount = (n) => box(typeof n === "number" ? String(n) : "—");
+        const fmtStatus = (v) => box(v);
+        const truncate = (s, max) => {
+            if (!s) {
+                return "";
+            }
+            const str = String(s);
+            return str.length > max ? str.slice(0, max - 1) + "…" : str;
+        };
+        const imdbLink = (id, name) => {
+            if (!id || !name) {
+                return null;
+            }
+            if (/^tt\d+$/.test(id)) {
+                return `[${truncate(name, 80)}](https://www.imdb.com/title/${id}/)`;
+            }
+            return truncate(name, 80);
+        };
+
+        const hasManifest = !!diag.manifestMeta;
+        const hasMovie = !!diag.movie;
+        const hasSeries = !!diag.series;
+        const hasCatalog = !!diag.catalog;
+
+        const movieOk = hasMovie && !diag.movie.error && (diag.movie.count ?? 0) > 0;
+        const seriesOk = hasSeries && !diag.series.error && (diag.series.count ?? 0) > 0;
+
+        const fields = [];
+
+        // Row 1: Status badges (Manifest / Movie Search / Series Search) — or catalog variant
+        fields.push({
+            name: "Manifest",
+            value: fmtStatus(hasManifest ? "✓ Valid" : "✗ Failed"),
+            inline: true,
+        });
+        if (hasCatalog) {
+            fields.push({
+                name: "Catalog",
+                value: fmtStatus(diag.catalog.count > 0 ? "✓ Working" : "✗ Empty"),
+                inline: true,
+            });
+            fields.push({
+                name: "Strategy",
+                value: fmtStatus(`catalog (${diag.catalog.type})`),
+                inline: true,
+            });
+        } else {
+            fields.push({
+                name: "Movie Search",
+                value: fmtStatus(hasMovie ? (movieOk ? "✓ Working" : "✗ Failed") : "—"),
+                inline: true,
+            });
+            fields.push({
+                name: "Series Search",
+                value: fmtStatus(hasSeries ? (seriesOk ? "✓ Working" : "✗ Failed") : "—"),
+                inline: true,
+            });
+        }
+
+        // Row 2: Timings
+        fields.push({
+            name: "Manifest Time",
+            value: fmtSeconds(diag.manifestMeta?.ms),
+            inline: true,
+        });
+        if (hasCatalog) {
+            fields.push({
+                name: "Catalog Time",
+                value: fmtSeconds(diag.catalog.meta?.ms),
+                inline: true,
+            });
+            fields.push({
+                name: "Total Time",
+                value: fmtSeconds(diag.totalMs),
+                inline: true,
+            });
+        } else {
+            fields.push({
+                name: "Movie Time",
+                value: fmtSeconds(diag.movie?.meta?.ms),
+                inline: true,
+            });
+            fields.push({
+                name: "Series Time",
+                value: fmtSeconds(diag.series?.meta?.ms),
+                inline: true,
+            });
+        }
+
+        // Row 3: Cache status
+        fields.push({
+            name: "Manifest Cache",
+            value: fmtCache(diag.manifestMeta?.cache),
+            inline: true,
+        });
+        if (hasCatalog) {
+            fields.push({
+                name: "Catalog Cache",
+                value: fmtCache(diag.catalog.meta?.cache),
+                inline: true,
+            });
+            fields.push({
+                name: "Items",
+                value: fmtCount(diag.catalog.count),
+                inline: true,
+            });
+        } else {
+            fields.push({
+                name: "Movie Cache",
+                value: fmtCache(diag.movie?.meta?.cache),
+                inline: true,
+            });
+            fields.push({
+                name: "Series Cache",
+                value: fmtCache(diag.series?.meta?.cache),
+                inline: true,
+            });
+        }
+
+        // Row 4 (stream mode only): Stream counts + total time
+        if (!hasCatalog) {
+            fields.push({
+                name: "Movie Streams",
+                value: fmtCount(diag.movie?.count),
+                inline: true,
+            });
+            fields.push({
+                name: "Series Streams",
+                value: fmtCount(diag.series?.count),
+                inline: true,
+            });
+            fields.push({
+                name: "Total Time",
+                value: fmtSeconds(diag.totalMs),
+                inline: true,
+            });
+        }
+
+        // Row 5 (stream mode): linked movie/series titles (IMDb)
+        if (!hasCatalog) {
+            const movieLink = hasMovie ? imdbLink(diag.movie.id, diag.movie.name) : null;
+            const seriesLink = hasSeries ? imdbLink(diag.series.id, diag.series.name) : null;
+            if (movieLink) {
+                fields.push({
+                    name: "Tested Movie",
+                    value: `${movieLink}\n\`${diag.movie.id}\``,
+                    inline: true,
+                });
+            }
+            if (seriesLink) {
+                fields.push({
+                    name: "Tested Series",
+                    value: `${seriesLink}\n\`${diag.series.id}\``,
+                    inline: true,
+                });
+            }
+        }
+
+        // Manifest URL (full-width)
+        fields.push({
+            name: "Manifest URL",
+            value: "`" + truncate(diag.manifestUrl || "", 200) + "`",
+            inline: false,
+        });
+
+        // Error (DOWN only)
+        if (!isUp) {
+            const errorText =
+                heartbeatJSON["msg"] ||
+                diag.movie?.error ||
+                diag.series?.error ||
+                "Unknown error";
+            fields.push({
+                name: "Error",
+                value: truncate(errorText, 1000),
+                inline: false,
+            });
+        }
+
+        // Thumbnail = addon logo pulled from the manifest
+        const thumbnailUrl = diag.manifestLogo || null;
+
+        const title = isUp
+            ? `${monitorJSON["name"]} is healthy`
+            : status === DOWN
+                ? `${monitorJSON["name"]} is down`
+                : status === PENDING
+                    ? `${monitorJSON["name"]} is pending`
+                    : `${monitorJSON["name"]} is in maintenance`;
+
+        // Human-friendly one-liner mirroring the reference screenshot
+        let description;
+        if (!isUp) {
+            description = heartbeatJSON["msg"] || "Instance is unhealthy";
+        } else if (hasCatalog) {
+            description = `Catalog returned ${diag.catalog.count} items`;
+        } else {
+            const parts = [];
+            if (movieOk) {
+                parts.push("movie");
+            }
+            if (seriesOk) {
+                parts.push("series");
+            }
+            description =
+                parts.length === 2
+                    ? "Instance is healthy and both movie/series searches working"
+                    : parts.length === 1
+                        ? `Instance is healthy and ${parts[0]} search working`
+                        : "Instance is healthy";
+        }
+
+        const embed = {
+            author: thumbnailUrl
+                ? { name: monitorJSON["name"], icon_url: thumbnailUrl }
+                : { name: monitorJSON["name"] },
+            title,
+            description: truncate(description, 500),
+            color,
+            timestamp: heartbeatJSON["time"],
+            fields,
+            footer: {
+                text: "stremio-addons.net",
+                icon_url: "https://stremio-addons.net/img/web-app-manifest-192x192.png",
+            },
+        };
+        return embed;
     }
 
     /**
